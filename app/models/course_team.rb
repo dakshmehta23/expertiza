@@ -1,68 +1,53 @@
 class CourseTeam < Team
-  belongs_to :course, class_name: 'Course', foreign_key: 'parent_id'
+  belongs_to : course, class_name: 'Course', foreign_key: 'parent_id'
 
-  # NOTE: inconsistency in naming of users that's in the team
-  #   currently they are being called: member, participant, user, etc...
-  #   suggestion: refactor all to participant
-
-  # Get parent course
-  def parent_model
-    'Course'
+  # Get the parent course. Useful for understanding the hierarchy and relationships.
+  def parent_course
+    Course.find(parent_id)
   end
 
-  def self.parent_model(course_id)
-    Course.find(course_id)
+  # A class method to find the parent course by its ID. Useful in class-level operations or queries.
+  def self.find_parent_course(course_id)
+    Course.find_by_id(course_id)
   end
 
-  # since this team is not an assignment team, the assignment_id is nil.
- # def assignment_id
-   # nil
- # end
-
-  # Prototype method to implement prototype pattern
+  # Maintains a prototype instance of CourseTeam for use in patterns requiring a fresh instance.
   def self.prototype
     CourseTeam.new
   end
 
-  # Copy this course team to the assignment team
+  # Facilitates copying this CourseTeam to an assignment team, adjusting for whether the assignment auto assigns mentors.
   def copy_to_assignment_team(assignment_id)
     assignment = Assignment.find_by(id: assignment_id)
-    if assignment.auto_assign_mentor
-      new_team = MentoredTeam.create_team_and_node(assignment_id)
-    else
-      new_team = AssignmentTeam.create_team_and_node(assignment_id)
-    end
+    new_team = if assignment&.auto_assign_mentor
+                 MentoredTeam.create_team_and_node(assignment_id)
+               else
+                 AssignmentTeam.create_team_and_node(assignment_id)
+               end
     new_team.name = name
     new_team.save
-    copy_members(new_team)
+    members.each { |member| new_team.add_member(member) }
   end
 
-  # Add participant to a course team
-  def add_participant(course_id, user)
-    if CourseParticipant.find_by(parent_id: course_id, user_id: user.id).nil?
-      CourseParticipant.create(parent_id: course_id, user_id: user.id, permission_granted: user.master_permission_granted)
+  # Adds a user as a participant to the course team, ensuring they are not already part of it.
+  def add_participant(user)
+    CourseParticipant.find_or_create_by(parent: self.course, user: user) do |participant|
+      participant.permission_granted = user.master_permission_granted
     end
   end
 
-  # Import from csv
-  def self.import(row, course_id, options)
-    raise ImportError, 'The course with the id "' + course_id.to_s + "\" was not found. <a href='/courses/new'>Create</a> this course?" if Course.find(course_id).nil?
-
-    @course_team = prototype
-    Team.import(row, course_id, options, @course_team)
+  # Delegates the import functionality to the TeamCsvHandler.
+  def self.import_from_csv(row, course_id, options = {})
+    TeamCsvHandler.import(row, course_id, options)
   end
 
-  # Export to csv
-  def self.export(csv, parent_id, options)
-    @course_team = prototype
-    Team.export(csv, parent_id, options, @course_team)
+  # Delegates the export functionality to the TeamCsvHandler.
+  def self.export_to_csv(parent_id, options = {})
+    TeamCsvHandler.export(parent_id, options)
   end
 
-  # Export the fields of the csv column
-  def self.export_fields(options)
-    fields = []
-    fields.push('Team Name')
-    fields.push('Team members') if options[:team_name] == 'false'
-    fields.push('Course Name')
+  # Defines the fields to be exported for the CSV, based on options provided.
+  def self.export_fields(options = {})
+    TeamCsvHandler.export_fields(options)
   end
 end
